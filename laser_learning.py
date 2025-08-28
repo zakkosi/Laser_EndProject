@@ -91,67 +91,31 @@ class LaserAutoLearner:
         return pairs
     
     def detect_laser_difference(self, on_img: np.ndarray, off_img: np.ndarray) -> Optional[LaserPoint]:
-        """ON/OFF 차이로 레이저 검출"""
-        
-        # 1. 차이 이미지 생성
+        """히트맵 기반 단순 검출"""
         diff = cv2.absdiff(on_img, off_img)
-        
-        # 2. 그레이스케일 변환
         gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray_diff, (15, 15), 0)
         
-        # 3. 가우시안 블러로 노이즈 제거
-        blurred = cv2.GaussianBlur(gray_diff, (5, 5), 0)
+        _, max_val, _, max_loc = cv2.minMaxLoc(blurred)
         
-        # 4. 적응형 임계값 (상위 1% 픽셀)
-        threshold = np.percentile(blurred, 99)
-        _, mask = cv2.threshold(blurred, threshold, 255, cv2.THRESH_BINARY)
-        
-        # 5. 모폴로지 연산으로 노이즈 제거
-        kernel = np.ones((3, 3), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        
-        # 6. 연결 요소 분석
-        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
-        
-        if num_labels <= 1:  # 배경만 있음
+        if max_val < 10:  # 최소 임계값
             return None
+            
+        x, y = max_loc
         
-        # 7. 가장 밝은 영역 찾기
-        best_candidate = None
-        max_score = 0
-        
-        for i in range(1, num_labels):
-            area = stats[i, cv2.CC_STAT_AREA]
+        # 간단한 특징 추출 (기존 방식 재사용)
+        features = self._extract_features(on_img, off_img, x, y)
+        if not features:
+            return None
             
-            # 너무 크거나 작은 영역 제외
-            if area < 1 or area > 100:
-                continue
-            
-            cx, cy = int(centroids[i][0]), int(centroids[i][1])
-            
-            # 경계 체크
-            if cx < 5 or cy < 5 or cx >= on_img.shape[1]-5 or cy >= on_img.shape[0]-5:
-                continue
-            
-            # 해당 위치의 특징 추출
-            features = self._extract_features(on_img, off_img, cx, cy)
-            
-            if features:
-                score = features['confidence']
-                if score > max_score:
-                    max_score = score
-                    best_candidate = LaserPoint(
-                        x=cx,
-                        y=cy,
-                        confidence=score,
-                        brightness=features['brightness'],
-                        green_ratio=features['green_ratio'],
-                        contrast=features['contrast'],
-                        image_id=""
-                    )
-        
-        return best_candidate
+        return LaserPoint(
+            x=x, y=y,
+            confidence=features['confidence'],
+            brightness=features['brightness'], 
+            green_ratio=features['green_ratio'],
+            contrast=features['contrast'],
+            image_id=""
+        )
     
     def _extract_features(self, on_img: np.ndarray, off_img: np.ndarray, 
                          x: int, y: int) -> Optional[Dict]:
