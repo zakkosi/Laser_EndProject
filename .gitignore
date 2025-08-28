@@ -6,6 +6,13 @@ __pycache__/
 # C extensions
 *.so
 
+
+
+# Model files (too large for git)
+models/*.pth
+models/*.pkl
+
+
 # Distribution / packaging
 .Python
 build/
